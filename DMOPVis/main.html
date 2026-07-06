@@ -1,0 +1,342 @@
+<!doctype html>
+<html>
+<head>
+<link rel="stylesheet" type="text/css" href="../libs/styles.css" />
+<title>Fitness Landscape Analysis</title>
+</head>	
+<body>
+<script src="./libs/d3.v7.min.js"></script>
+<script src="./libs/d3-simple-slider.js"></script>
+<script src="./libs/plotly-latest.min.js"></script>
+<script src="./libs/utils.js"></script>
+<script src="./libs/saveSvgAsPng.js"></script>
+<script src="./layouts/VariationChart.js"></script>
+<script src="./layouts/AlgorithmEvaluation.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/pdfkit@0.10.0/js/pdfkit.standalone.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/svg-to-pdfkit@0.1.8/source.js"></script>
+
+
+<div class="mainTable select">
+<table>
+	<colgroup>
+       <col span="1" style="width: 52%;" />
+       <col span="1" style="width: 30%;" />
+       <col span="1" style="width: 25%;" />
+    </colgroup>
+    <tbody>
+        <tr>
+			<td colspan="3" align="center">
+				<div id="filtersDiv">
+					 <label for="functionSelect" class="labelWidget">Problem: </label>
+					 <select id="functionSelect"></select>
+					 <label for="prioritySelect" class="labelWidget">Priority: </label>
+					 <select id="prioritySelect"></select>
+					 <div id="fadingFactorDiv" class="component">
+						<label for="fadingFactorInput" class="labelWidgetHidden">Fading Factor: </label>
+						<input id="fadingFactorInput" class="labelWidgetHidden" size="5" value="0.999" />
+					 </div>
+					 <input id="algEvaluatorButton" type="button" value="Algorithm Evaluation">
+					 <div id="tsSliderDiv" class="component"></div>
+					 <br>
+					 <div id="tsSelectorDiv" class="component"></div>
+					 <br>
+				</div>
+			</td>
+        </tr>
+        <tr>
+            <td id="Variability2DChartCel"></td>
+			<td id="SelectedSeriesCel" rowspan=2></td>
+			<td id="LineVariationChartCel" rowspan=2></td>
+        </tr>
+        <tr>
+			<td id="Variability3DChartCel"></td>
+        </tr>
+		<tr>
+			<td id="ObjectiveFunctionsCel" colspan=3></td>
+        </tr>
+    </tbody>
+</table>
+</div>
+<script>
+var sHeight = 500, sWidth = 1000;
+var toolTip = d3.select('body').append('div').attr('class','tooltip').style('opacity', 0);
+
+ //Size of grid cells - Variability2DChart
+var wRect = 4, hRect = 4; //Used for benchmark problems
+//var wRect = 20, hRect = 20; //Used for real world problems
+//Size of vertex on complimentary layouts (LineVariation, Radars, etc.)
+var sizeVertex = 2.5;
+// measure used in all layouts. Change according to the measure to be used. The available measures so far are: dl: non-domination level; dc: domination count.
+var measureConsidered = 'dl'; 
+//color palette. Add as many colors as needed, the layout will adjust to it automatically
+var colorPalette = ["#4269d0","#efb118","#ff725c","#6cc5b0","#3ca951","#ff8ab7","#a463f2","#97bbf5","#9c6b4e","#9498a0"] 
+//color for selected objects in the layout
+var selectionColor = 'black'; 
+//margin or the layout inside its window
+var margin = {top: 30, right: 10, bottom: 10, left: 0}; 
+//Flags to enable/disable layouts
+var renderParetoSetSizeRadarChart = false;
+var render3DChart = true;
+var renderLineVariationChart = true;
+var renderObjectivesTradeoffRadarChart = true;
+var renderObjectiveVariabilityPC = true;
+var renderDecisionObjectivePC = true;
+var renderSelectionDistributionChart = false;
+var mainDiv = 'mainDiv';
+//selected solutions from the layout, from who user wants to see details. This is used by all the complimentary layouts
+var selectedSeries = {};
+//color mapping to selected series
+seriesColors = {};
+//colorset index to map colors to selected series
+indexColors = 0; 
+var swapValue = false;
+
+var functions = ['DF1-x1_x2-f1_f2',
+				 'DF3-x1_x2-f1_f2',
+				 'DF4-x1_x2-f1_f2',
+				 'DF5-x1_x2-f1_f2',
+				 'DF6-x1_x2-f1_f2',
+				 'DF7-x1_x2-f1_f2',
+				 'DF8-x1_x2-f1_f2',
+				 'DF9-x1_x2-f1_f2',
+				 'Software-c_gamma-fNumSV_fGMean',
+				 'NOAA-c_gamma-faverageNumSV_faverageGMean'
+				 ]
+
+var functionSelect = d3.select('#functionSelect');
+functionSelect.selectAll('option').data(functions).enter()
+				.append('option').text(function(d){return d;})
+				.attr('value',function(d){return d;})
+functionSelect.on('change',function(d){
+					loadProblem(d3.select(this).node().value);
+				});
+
+functionSelect.property('value',functions[0]);
+
+loadProblem(functionSelect.property('value'));
+
+function loadProblem(problem) {
+	d3.select('#tsSliderSVG').remove();
+	d3.select('#tsSVG').remove();
+	selectedSeries = {};
+	fillSelectedSeries('SelectedSeries');
+	if (problem != '') {
+		var nameParts = problem.split('-');
+		var decisionVariables = nameParts[1].split('_');
+		var objectives = nameParts[2].split('_');
+		Promise.all([d3.csv('./data/Benchmarks/'+problem+'.csv')])
+			   .then(function(data){main(data[0],decisionVariables,objectives);})
+			   .catch(function(e) {console.log('Layout Error: '+e);});
+	}
+
+}
+
+//-----------------------------------------------------------------------------------
+//Layout main structure
+function fillFiltersDiv(completeData,decisionVariables,objectives) {
+	var functionSelect = d3.select('#functionSelect');
+	//Slider Definition
+	var tsValues = Object.keys(completeData[0]).filter(function(d){return d.startsWith(objectives[0]);}).map(function(d,i){return i;});
+	var mints = d3.min(tsValues,function(d,i){return i;});
+	var maxts = d3.max(tsValues,function(d,i){return i;});
+	
+	const sliderRange = d3.sliderBottom()
+		.min(mints)
+		.max(maxts)
+		.width(350)
+		.ticks(tsValues.length)
+		.step(1)
+		.default([mints,maxts])
+		.fill('blue')
+		.on('onchange',function(val) {
+			var s = Math.trunc(val[0]);
+			var e = Math.trunc(val[1]);
+			var tsValues = Array.from({length:(e-s)+1},function(v,i){return (s+i);});
+			d3.select('#selectedValues').text(val);
+			var priority = d3.select('#prioritySelect').node().value;
+			var alpha = d3.select('#fadingFactorInput').node().value;
+			fillVariabilityChart(decisionVariables,objectives,tsValues,priority,alpha);
+			if (render3DChart) {
+				var height = d3.select('#measureHeight3D').node().value;
+				var color = d3.select('#measureColor3D').node().value;
+				fill3DVariabilityChart('Variability3DChart',decisionVariables,objectives,selectedMeasure,tsValues,priority,alpha,height,color);
+			}
+			if (renderLineVariationChart) fillLineVariationChart(decisionVariables,selectedSeries);			
+			if (renderObjectiveVariabilityPC) fillObjectiveVariabilityPC(decisionVariables,objectives,selectedMeasure,selectedSeries);
+			if (renderDecisionObjectivePC) fillDecisionObjectivePC(decisionVariables,objectives,selectedMeasure,selectedSeries);
+			if (renderObjectivesTradeoffRadarChart) fillObjectiveFunctionsRadarChart(decisionVariables,objectives,selectedSeries);
+			if (renderDecisionObjectivePC) fillDecisionObjectivePC(decisionVariables,objectives,selectedMeasure,selectedSeries);
+		});
+		
+	//DOM insertion
+	var filtersDiv = d3.select('#filtersDiv');
+	const gRange = filtersDiv.append('svg')
+								.attr('width',370)
+								.attr('id','tsSliderSVG')
+								.attr('height',60)
+								.style('text-align','center')
+								.append('g')
+								.attr('transform','translate('+11+',11)');
+	gRange.call(sliderRange);
+	
+	var tsSliderSVG = d3.select('#tsSliderSVG');
+	tsSliderSVG.append('input').attr('id','selectedValues').style('visibility','hidden').text(sliderRange.value());
+	
+	var prioritySelect = d3.select('#prioritySelect');
+	var priorities = [{text:'Equal',value:'eq'},{text:'More Recent',value:'mr'},{text:'Least Recent',value:'lr'}];
+	prioritySelect.selectAll('option').data(priorities).enter()
+				.append('option').text(function(d){return d.text;})
+				.attr('value',function(d){return d.value;})
+	prioritySelect.on('change',function(d){
+					var text = d3.select('#selectedValues').text().split(',');
+					var s = Math.trunc(+text[0]);
+					var e = Math.trunc(+text[1]);
+					var tsValues = Array.from({length:(e-s)+1},function(v,i){return (s+i);});
+					var priority = d3.select('#prioritySelect').node().value;
+					var fadingFactorWidgets = d3.select('#fadingFactorDiv').selectAll('*');
+					fadingFactorWidgets.classed('labelWidget',(priority != 'eq'));
+					fadingFactorWidgets.classed('labelWidgetHidden',!(priority != 'eq'));
+					var alpha = d3.select('#fadingFactorInput').node().value;
+					fillVariabilityChart(decisionVariables,objectives,tsValues,priority,alpha)
+					var height = d3.select('#measureHeight3D').node().value;
+					var color = d3.select('#measureColor3D').node().value;
+					if (render3DChart)
+						fill3DVariabilityChart('Variability3DChart',decisionVariables,objectives,selectedMeasure,tsValues,priority,alpha,height,color);
+				});
+				
+	var tsSelectorDiv = d3.select('#tsSelectorDiv');
+	var tsSVG = tsSelectorDiv.append('svg')
+						.attr('id','tsSVG')
+						.attr('width',350)
+						.attr('id','tsSVG')
+						.attr('height',30)
+						.style('text-align','center');	
+	tsSVG.selectAll('g').data(tsValues).enter().append('g').attr('transform',function(d,i){return 'translate('+(1+(i*35))+','+5+')';})
+	.on('click',function(ev,d){
+				var selectedMeasure = d3.select('#measureSelect2D').node().value;
+				var plotData = [];
+				var selectedTS = d;
+				localStorage.clear();
+				var sizePopup = 0;
+				if (selectedMeasure.endsWith('.csv')) {
+					var algName = selectedMeasure.split('-')[1];
+					selectedMeasure = selectedMeasure.split('-')[0];
+					d3.select('#variationChartG').selectAll('rect').each(function(elem,i) {
+						var obj = {};
+						obj['dl'] = elem['dl'+'-'+selectedTS];
+						decisionVariables.forEach(function(variable){
+														obj[variable] = +elem[variable];
+												 });
+						if ((elem['algData-'+algName] != null)&&(elem['algData-'+algName].get(selectedTS.toString()) != null)) {
+							obj['ngens'] = elem['algData-'+algName].get(selectedTS.toString()).length;
+							obj['gens'] = elem['algData-'+algName].get(selectedTS.toString()).map(function(g){return +g['gen'];});
+							obj['fs'] = elem['algData-'+algName].get(selectedTS.toString())[0]['gen'];
+							obj['ls'] = elem['algData-'+algName].get(selectedTS.toString())[elem['algData-'+algName].get(selectedTS.toString()).length-1]['gen'];
+						}
+						plotData.push(obj);
+					});
+					sizePopup = 1010;
+				}else {
+					plotData = completeData.map(function(d,i) {
+						var obj = {};
+						decisionVariables.forEach(function(variable){obj[variable] = d[variable];});
+						obj[selectedMeasure] = +d[measureConsidered+'-'+selectedTS];
+						if (selectedMeasure == 'pm') obj[selectedMeasure] = (obj[selectedMeasure] == 1) ? 1 : 0;
+						return obj;
+					});
+					sizePopup = 930;
+				}
+				localStorage.setItem('plotData',JSON.stringify(plotData));
+				localStorage.setItem('selectedMeasure',d3.select('#measureSelect2D').node().value);
+				localStorage.setItem('selectedTimestamp',selectedTS);
+				localStorage.setItem('decisionVariables',decisionVariables);
+				localStorage.setItem('swap',d3.select('#swapColors2DInput').property('checked'));
+				localStorage.setItem('ignorePS',d3.select('#measureSelect2D').node().value.endsWith('.csv'));
+				
+				var page = window.open('http://localhost:8080/staticTimeStamp.html','','toolbar=no,scrollbars=no,resizable=no,width=900,height='+sizePopup);
+	});
+	
+	tsSVG.selectAll('g')
+					.append('text')
+						.attr('id',function(d,i){return 'textTS'+i;})
+						.classed('labelWidget',true)
+						.attr('x',function(d,i){return 10;})
+						.attr('y',17)
+						.text(function(d,i){return d;});
+	
+	tsSVG.selectAll('g')
+					.append('rect')
+						.attr('id',function(d,i){return 'ts'+i;})
+						.attr('width',30)
+						.attr('height',20)
+						.attr('stroke','black')
+						.attr('fill','none')
+						
+	//Enabling algorithm evaluator
+	var algEvaluatorButton = d3.select('#algEvaluatorButton');
+	algEvaluatorButton.on('click',function() {
+							var resultsPath = './data/algs/';
+							var resultsFilename = 'DMDMOEA_DF1.csv'; //Change here to use other algorithms/datasets.
+							Promise.all([d3.csv(resultsPath+resultsFilename)])
+								   .then(function(data){
+										var selectedMeasure = d3.select('#measureSelect2D')
+										if (!selectedMeasure.empty()) {
+											var newMeasures = [
+												{text:'Generations - '+resultsFilename,value:'ngens-'+resultsFilename},
+												{text:'First selection - '+resultsFilename,value:'fs-'+resultsFilename},
+												{text:'Last selection - '+resultsFilename,value:'ls-'+resultsFilename},
+												{text:'Survival - '+resultsFilename,value:'ss-'+resultsFilename}
+											]
+											newMeasures.forEach(function(m){
+												selectedMeasure.append('option')
+													.text(function(d){return m['text'];})
+													.attr('value',function(d){return m['value'];});
+											});
+											selectedMeasure.property('value',newMeasures[0]['value']);
+										}
+										fillSolutionAlgorithmData(data[0],resultsFilename,decisionVariables);
+										var text = d3.select('#selectedValues').text().split(',');
+										var s = Math.trunc(+text[0]);
+										var e = Math.trunc(+text[1]);
+										var tsValues = Array.from({length:(e-s)+1},function(v,i){return (s+i);});
+										var priority = d3.select('#prioritySelect').node().value;
+										var alpha = d3.select('#fadingFactorInput').node().value;
+										fillVariabilityChart(decisionVariables,objectives,tsValues,priority,alpha);
+									})
+								   .catch(function(e) {console.log('Layout Error: '+e);});
+				});
+}
+
+function main(completeData,decisionVariables,objectives) {
+	var mainDash = d3.select('#'+mainDiv);
+	if (mainDash.empty()) {
+		mainDash = d3.select('body').append('div')
+		.attr('id',mainDiv)
+		.style('style','height:'+sHeight+'px;max-width:'+sWidth+'px;')
+	}
+	mainDash.selectAll("*").remove();
+	fillFiltersDiv(completeData,decisionVariables,objectives);
+	var tsValues = Object.keys(completeData[0]).filter(function(d){return d.startsWith(objectives[0]);}).map(function(d,i){return i;});
+	var selectedMeasure = 'dl';
+	var priority = d3.select('#prioritySelect').node().value;
+	buildVariabilityChart('Variability2DChart',completeData,decisionVariables,objectives);
+	var alpha = d3.select('#fadingFactorInput').node().value;
+	fillVariabilityChart(decisionVariables,objectives,tsValues,priority,alpha);
+	if (render3DChart) {
+		build3DVariabilityChart('Variability3DChart',completeData,decisionVariables,objectives);
+		var heightMeasure = d3.select('#measureHeight3D').node().value;
+		var colorMeasure = d3.select('#measureColor3D').node().value;
+		fill3DVariabilityChart('Variability3DChart',decisionVariables,objectives,selectedMeasure,tsValues,priority,alpha,heightMeasure,colorMeasure);
+	}
+	if (renderParetoSetSizeRadarChart) buildfillParetoSetSizeRadarChart('OverviewRadarChart',completeData,selectedMeasure,selectedFunction,tsValues);
+	if (renderLineVariationChart) buildLineVariationChart('LineVariationChart');
+	if ((renderObjectivesTradeoffRadarChart)||(renderObjectiveVariabilityPC)||(renderDecisionObjectivePC)) //Building the Objective Function layouts (at least one)
+		buildObjectiveFunctionsModule('ObjectiveFunctions',decisionVariables,objectives);
+	
+	if (renderSelectionDistributionChart)
+		buildSelectionDistributionChart('SelectionDistributionChart');
+}
+</script>
+</body>
+</html>

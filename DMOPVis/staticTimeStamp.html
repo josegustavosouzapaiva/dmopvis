@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+<head>
+<title>Timestamp</title>
+<link rel="stylesheet" type="text/css" href="../libs/styles.css" />
+</head>	
+<body>
+<script src="../libs/d3.v7.min.js"></script>
+<script src="../libs/utils.js"></script>
+<script src="./layouts/StaticChart.js"></script>
+<script src="./layouts/AlgorithmEvaluation.js"></script>
+
+<div class="table_component">
+<table>
+    <tbody>
+        <tr>
+			<td id="Static2DChartCel"></td>
+        </tr>
+        
+    </tbody>
+</table>
+</div>
+<script>
+var sHeight = 500, sWidth = 1000;
+var toolTip = d3.select('body').append('div').attr('class','tooltip').style('opacity', 0);
+var wRect = 4, hRect = 4; //Used for benchmark problems
+//var wRect = 20, hRect = 20; //Used for real world problems
+var mainDiv = 'mainDiv';
+main();
+//-----------------------------------------------------------------------------------
+//Layout main structure
+
+function main() {
+	var mainDash = d3.select('#'+mainDiv);
+	if (mainDash.empty()) {
+		mainDash = d3.select('body').append('div')
+		.attr('id',mainDiv)
+		.style('style','height:'+sHeight+'px;max-width:'+sWidth+'px;')
+	}
+	var plotData = JSON.parse(localStorage.getItem('plotData'));
+	var selectedMeasure = localStorage.getItem('selectedMeasure');
+	var selectedTimestamp = localStorage.getItem('selectedTimestamp');
+	var decisionVariables = localStorage.getItem('decisionVariables');
+	var swap = localStorage.getItem('swap');
+	var ignorePS = localStorage.getItem('ignorePS');
+	
+	d3.select('title').text('Timestamp '+selectedTimestamp);
+	localStorage.clear();
+	var t = plotData.filter(function(d){return d['dl'] ==1;});
+	buildFillStaticChart(plotData,decisionVariables.split(','),selectedMeasure,selectedTimestamp,swap,ignorePS);
+}
+</script>
+</body>
+</html>
