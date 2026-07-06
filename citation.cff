@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+title: "DMOPVis: A visual analysis framework for dynamic multi-objective optimisation"
+message: "If you use this software, please cite it as follows."
+type: software
+
+authors:
+  - family-names: Paiva
+    given-names: José Gustavo de Souza
+  - family-names: ...
+    given-names: ...
+
+version: 1.0.0
+
+doi: 10.5281/zenodo.xxxxxxx
