@@ -1,4 +1,4 @@
 # dmopvis
 DMOPVis project files
 
-To cite this project: <a href="https://doi.org/10.5281/zenodo.21225345"><img src="https://zenodo.org/badge/1290478160.svg" alt="DOI"></a>
+<a href="https://doi.org/10.5281/zenodo.21225345"><img src="https://zenodo.org/badge/1290478160.svg" alt="DOI"></a>
